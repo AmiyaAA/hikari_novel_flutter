@@ -1,0 +1,47 @@
+name: Build Flutter APK
+
+on:
+  workflow_dispatch: # 支持在 GitHub 网页手动点击按钮随时触发构建
+  push:
+    branches:
+      - main
+      - master # 当你向 main 或 master 分支提交代码时也会自动构建
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 检出仓库代码
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. 配置 Java 17 环境 (Flutter Android 打包所需)
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # 3. 安装配置 Flutter SDK
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true # 开启依赖缓存，加快后续构建速度
+
+      # 4. 获取 Flutter 项目依赖包
+      - name: Get Dependencies
+        run: flutter pub get
+
+      # 5. 编译 Release 版 APK
+      - name: Build APK
+        run: flutter build apk --release
+
+      # 6. 将编译好的 APK 导出保存为 Artifacts 供下载
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hikari-novel-release-apk
+          path: build/app/outputs/flutter-apk/*.apk

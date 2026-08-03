@@ -1,0 +1,42 @@
+name: Auto Sync Upstream
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # 每天 UTC 0:00 (北京时间早 8:00) 自动检查并同步
+  workflow_dispatch: # 支持在 GitHub 网页手动点击按钮随时触发同步
+
+permissions:
+  contents: write # 赋予 GitHub Actions 提交代码回仓库的权限
+
+jobs:
+  sync_latest_from_upstream:
+    name: Sync Upstream Changes
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 检出你当前 Fork 的仓库代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. 同步原作者上游仓库代码
+      - name: Sync with Upstream
+        run: |
+          # 配置 Git 机器人身份
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 添加原作者的上游仓库地址
+          git remote add upstream https://github.com/15dd/hikari_novel_flutter.git
+          git fetch upstream
+
+          # 自动获取当前分支名（main 或 master）
+          BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          echo "Current branch is: $BRANCH"
+
+          # 合并上游最新的代码
+          git merge upstream/$BRANCH --no-edit || git merge upstream/main --no-edit || git merge upstream/master --no-edit
+
+          # 推送更新回你自己的 Fork 仓库
+          git push origin $BRANCH

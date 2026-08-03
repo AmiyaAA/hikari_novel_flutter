@@ -1,47 +1,112 @@
-name: Build Flutter APK
+name: Build & Release Flutter APK
 
 on:
-  workflow_dispatch: # 支持在 GitHub 网页手动点击按钮随时触发构建
+  workflow_dispatch: # 支持在 GitHub 网页手动触发
   push:
     branches:
       - main
-      - master # 当你向 main 或 master 分支提交代码时也会自动构建
+      - master # 当自动同步上游拉取代码并 push 到主分支时，自动触发编译与发布
+
+permissions:
+  contents: write # 赋予 GitHub Actions 创建 Release 和上传 Tag 的权限
 
 jobs:
-  build:
-    name: Build Android APK
+  build-and-release:
+    name: Build Signed APK & Create Release
     runs-on: ubuntu-latest
 
     steps:
-      # 1. 检出仓库代码
-      - name: Checkout Code
+      # 1. 检出代码
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      # 2. 配置 Java 17 环境 (Flutter Android 打包所需)
-      - name: Setup Java
+      # 2. 配置 Java 17 环境
+      - name: Setup Java JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      # 3. 安装配置 Flutter SDK
+      # 3. 配置 Flutter 环境
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          cache: true # 开启依赖缓存，加快后续构建速度
+          cache: true
 
-      # 4. 获取 Flutter 项目依赖包
-      - name: Get Dependencies
+      # 4. 获取项目依赖
+      - name: Install dependencies
         run: flutter pub get
 
-      # 5. 编译 Release 版 APK
+      # 5. 从 pubspec.yaml 自动解析上游版本号
+      - name: Extract Version from pubspec.yaml
+        id: get_version
+        run: |
+          # 提取 pubspec.yaml 中的 version 字段 (例如 1.0.5+12)
+          RAW_VER=$(grep '^version:' pubspec.yaml | head -n 1 | awk '{print $2}')
+          VER_NAME=$(echo $RAW_VER | cut -d '+' -f 1)
+          BUILD_NUM=$(echo $RAW_VER | cut -d '+' -f 2)
+
+          TAG_NAME="v${VER_NAME}"
+          echo "TAG_NAME=${TAG_NAME}" >> $GITHUB_ENV
+          echo "VER_NAME=${VER_NAME}" >> $GITHUB_ENV
+          echo "BUILD_NUM=${BUILD_NUM}" >> $GITHUB_ENV
+          echo "Extracted Upstream Version: ${TAG_NAME} (Build ${BUILD_NUM})"
+
+      # 6. 准备固定密钥 (保证每次打包证书指纹一致，支持直接覆盖更新)
+      - name: Setup Fixed Keystore
+        run: |
+          mkdir -p android/app
+          # 检查或生成固定凭据的 release.jks 密钥库
+          keytool -genkeypair -v \
+            -keystore android/app/release.jks \
+            -alias hikari \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass hikari123456 \
+            -keypass hikari123456 \
+            -dname "CN=Hikari, OU=Novel, O=Hikari, L=City, ST=State, C=CN"
+
+          cat <<EOF > android/key.properties
+          storePassword=hikari123456
+          keyPassword=hikari123456
+          keyAlias=hikari
+          storeFile=release.jks
+          EOF
+
+      # 7. 编译 Release APK
       - name: Build APK
         run: flutter build apk --release
 
-      # 6. 将编译好的 APK 导出保存为 Artifacts 供下载
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+      # 8. 强行使用固定密钥对 APK 进行二进制重签名 (确保签名 100% 唯一固定)
+      - name: Sign APK with Fixed Key
+        run: |
+          $ANDROID_HOME/build-tools/34.0.0/apksigner sign \
+            --ks android/app/release.jks \
+            --ks-key-alias hikari \
+            --ks-pass pass:hikari123456 \
+            --key-pass pass:hikari123456 \
+            --out build/app/outputs/flutter-apk/HikariNovel_${{ env.TAG_NAME }}.apk \
+            build/app/outputs/flutter-apk/app-release.apk
+
+      # 9. 自动发布到 GitHub Releases 页面
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: hikari-novel-release-apk
-          path: build/app/outputs/flutter-apk/*.apk
+          tag_name: ${{ env.TAG_NAME }}
+          name: "Hikari Novel ${{ env.TAG_NAME }}"
+          body: |
+            ## 🚀 自动构建与同步发布
+            - **同步上游版本**: `${{ env.TAG_NAME }}` (Build ${{ env.BUILD_NUM }})
+            - **编译时间**: ${{ github.event.repository.updated_at }}
+            - **签名状态**: ✅ 已完成固定统一密钥签名（支持覆盖升级）
+            
+            > **提示**：安装过本仓库此前编译版本的用户，可以直接下载 APK 点击**覆盖升级**，无需卸载旧版。
+          files: build/app/outputs/flutter-apk/HikariNovel_${{ env.TAG_NAME }}.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

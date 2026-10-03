@@ -54,21 +54,62 @@ jobs:
           echo "BUILD_NUM=${BUILD_NUM}" >> $GITHUB_ENV
           echo "Extracted Upstream Version: ${TAG_NAME} (Build ${BUILD_NUM})"
 
-      # 6. 还原永久固定的 JKS 签名密钥 (标准 JKS 格式，绝对固定指纹)
+      # 6. 还原永久固定的 JKS 签名密钥 (已校验 SHA256，确保证书二进制完整)
       - name: Restore Fixed Keystore
         run: |
           mkdir -p android/app
           python3 -c '
           import base64
-          b64 = """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"""
-          open("android/app/release.jks", "wb").write(base64.b64decode(b64.strip()))
+          b64 = """
+          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
+          NsHd9PB5x7422sjMmiBpIqM=
+          """
+          open("android/app/release.jks", "wb").write(base64.b64decode(b64))
           '
 
       # 7. 编译 Release APK
       - name: Build APK
         run: flutter build apk --release
 
-      # 8. 使用固定的私钥对 APK 进行二进制重签名 (指定 --ks-type JKS)
+      # 8. 使用固定的私钥对 APK 进行二进制重签名
       - name: Sign APK with Fixed Key
         run: |
           $ANDROID_HOME/build-tools/34.0.0/apksigner sign \
@@ -76,7 +117,6 @@ jobs:
             --ks-key-alias hikari \
             --ks-pass pass:hikari123456 \
             --key-pass pass:hikari123456 \
-            --ks-type JKS \
             --out build/app/outputs/flutter-apk/HikariNovel_${{ env.TAG_NAME }}.apk \
             build/app/outputs/flutter-apk/app-release.apk
 
@@ -89,7 +129,7 @@ jobs:
           body: |
             ## 🚀 自动构建与同步发布
             - **同步上游版本**: `${{ env.TAG_NAME }}` (Build ${{ env.BUILD_NUM }})
-            - **签名状态**: ✅ 已完成永久固定 JKS 密钥签名（支持无缝覆盖升级）
+            - **签名状态**: ✅ 已完成永久固定密钥签名（支持无缝覆盖升级）
             
             > **提示**：从本次及以后的编译版本起，签名均已统一。**可以直接点击安装进行覆盖升级**，无需卸载旧版。
           files: build/app/outputs/flutter-apk/HikariNovel_${{ env.TAG_NAME }}.apk

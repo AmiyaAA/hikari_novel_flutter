@@ -40,13 +40,17 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      # 5. 从 pubspec.yaml 自动解析上游版本号
+      # 5. 从 pubspec.yaml 自动解析上游版本号（增强容错）
       - name: Extract Version from pubspec.yaml
         id: get_version
         run: |
-          RAW_VER=$(grep '^version:' pubspec.yaml | head -n 1 | awk '{print $2}')
+          RAW_VER=$(grep -E '^\s*version:' pubspec.yaml | head -n 1 | awk '{print $2}')
           VER_NAME=$(echo $RAW_VER | cut -d '+' -f 1)
           BUILD_NUM=$(echo $RAW_VER | cut -d '+' -f 2)
+
+          if [ -z "$VER_NAME" ]; then
+            VER_NAME="1.0.0"
+          fi
 
           TAG_NAME="v${VER_NAME}"
           echo "TAG_NAME=${TAG_NAME}" >> $GITHUB_ENV
@@ -54,7 +58,7 @@ jobs:
           echo "BUILD_NUM=${BUILD_NUM}" >> $GITHUB_ENV
           echo "Extracted Upstream Version: ${TAG_NAME} (Build ${BUILD_NUM})"
 
-      # 6. 还原永久固定的 JKS 签名密钥 (已校验 SHA256，确保证书二进制完整)
+      # 6. 还原永久固定的 JKS 签名密钥
       - name: Restore Fixed Keystore
         run: |
           mkdir -p android/app
@@ -120,7 +124,14 @@ jobs:
             --out build/app/outputs/flutter-apk/HikariNovel_${{ env.TAG_NAME }}.apk \
             build/app/outputs/flutter-apk/app-release.apk
 
-      # 9. 自动发布到 GitHub Releases 页面
+      # 9. 保底方案：上传产物到 Actions 运行页面供随时直接下载
+      - name: Upload APK to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: HikariNovel_${{ env.TAG_NAME }}
+          path: build/app/outputs/flutter-apk/HikariNovel_${{ env.TAG_NAME }}.apk
+
+      # 10. 发布到 GitHub Releases 页面
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -131,9 +142,11 @@ jobs:
             - **同步上游版本**: `${{ env.TAG_NAME }}` (Build ${{ env.BUILD_NUM }})
             - **签名状态**: ✅ 已完成永久固定密钥签名（支持无缝覆盖升级）
             
-            > **提示**：从本次及以后的编译版本起，签名均已统一。**可以直接点击安装进行覆盖升级**，无需卸载旧版。
+            > **提示**：安装过本版本的用户，以后有新版可直接下载点击**覆盖升级**，无需卸载旧版。
           files: build/app/outputs/flutter-apk/HikariNovel_${{ env.TAG_NAME }}.apk
           draft: false
           prerelease: false
+          generate_release_notes: true
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
